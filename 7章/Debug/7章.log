@@ -1,0 +1,5 @@
+﻿  calc1.c
+c:\users\jonsh\onedrive\ドキュメント\visual studio 2017\projects\7章\7章\calc1.c(20): warning C4996: 'sscanf': This function or variable may be unsafe. Consider using sscanf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.15063.0\ucrt\stdio.h(2260): note: 'sscanf' の宣言を確認してください
+  7章.vcxproj -> c:\users\jonsh\onedrive\ドキュメント\visual studio 2017\Projects\7章\Debug\7章.exe
+  7章.vcxproj -> c:\users\jonsh\onedrive\ドキュメント\visual studio 2017\Projects\7章\Debug\7章.pdb (Partial PDB)
