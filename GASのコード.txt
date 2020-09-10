@@ -1,0 +1,30 @@
+function myFunction() {
+ 
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  //使うシート名を入力
+  const sheet = ss.getSheetByName('【マクロ1】');
+
+  //シートの枚数を取得
+  var sh_cnt = ss.getSheets().length;
+  
+  var j2=1;
+  
+   //はじめを除いたスプレッドシートを対象(1~6回)
+  for(var i=1;i<sh_cnt;i++){
+    
+    var sheet2 = ss.getSheets()[i];
+    
+    //最後の列数を取得
+    var row = sheet2.getLastRow();
+    
+    //2行目スタート、6列目まで
+    for(var j = 2; j <= row; j++){
+      j2++;
+      for(var k = 1; k <= 6; k++){
+        sheet.getRange(j2, k).setValue(sheet2.getRange(j, k).getValue());
+      }
+    }
+  }
+  
+}
