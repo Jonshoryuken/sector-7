@@ -1,0 +1,49 @@
+Public Sub importFolder()
+    
+    '転記先のワークブックを覚えておく
+    Dim wbPrevious As Workbook
+    Set wbPrevious = ActiveWorkbook
+
+    'フォルダの指定
+    Dim folderDialog As Object
+    Set folderDialog = Application.FileDialog(msoFileDialogFolderPicker)
+    
+    Dim folderPath As String
+    'フォルダの選択、選択したならTrue、キャンセルならFalseを返す
+    If folderDialog.Show Then
+        '選択したフォルダのパスを格納する
+        folderPath = folderDialog.SelectedItems(1)
+    Else
+        Exit Sub
+    End If
+    
+    'ファイルシステムオブジェクトの生成
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    
+    'フォルダ内のすべてのファイルに対して処理
+    Dim f As Object
+    
+    'GetFolderメソッドで情報を取得(fにxlsxを順に入れる)
+    For Each f In fso.GetFolder(folderPath).Files
+
+        '拡張子によりExcelファイルだけを対象とする
+        If Right(f.Name, 4) = ".xls" Or Right(f.Name, 5) = ".xlsx" Then
+        
+            '請求書のワークブックとシートを格納する変数の宣言
+            Dim wb As Workbook
+            
+            'ワークブックに含まれるすべてのシートに対して加算処理
+            Set wb = Workbooks.Open(f.Path)
+            
+            'それぞれ加算する転記元データを転記先データに入れていく
+            wb.Sheets(1).Range("A1:I9").Copy
+            wbPrevious.Sheets(1).Range("A1:I9").PasteSpecial Paste:=xlValues, Operation:=xlAdd
+                
+            
+            wb.Close SaveChanges:=False
+            
+        End If
+    Next
+    
+End Sub
