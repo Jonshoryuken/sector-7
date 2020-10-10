@@ -1,0 +1,72 @@
+Option Explicit
+
+Sub sample()
+
+    
+    Dim driver As WebDriver
+    Set driver = New ChromeDriver
+    Dim i As Long
+    
+    
+    
+    driver.Start "chrome"
+    driver.Get "https://www.amazon.co.jp/"
+    
+    Dim element, element2 As Selenium.WebElement
+    
+    
+    '対象項目の件数分繰り返す
+    For i = 1 To 3
+        '●が入っている行のみが対象
+        If InStr(Cells(i, 5), "●") > 0 Then
+        
+         '検索内容をテキストボックスに入れ、検索ボタンを押す
+         driver.FindElementById("twotabsearchtextbox").Clear
+         driver.FindElementById("twotabsearchtextbox").SendKeys (Cells(i, 1))
+         driver.FindElementById("nav-search-submit-text").Click
+         
+         'h3タグがない場合は×になる
+         If driver.FindElementsByTag("h3").Count = 0 Then
+            
+            Cells(i, 6).Value = "×"
+            Exit For
+            
+         End If
+         
+         'h3タグがあり、おすすめ記事が含まれている場合〇、なければ×
+         For Each element In driver.FindElementsByTag("h3")
+         
+             If InStr(element.Text, "おすすめ記事") Then
+             
+                     Cells(i, 6).Value = "〇"
+                     
+                     '著者を転記する
+                     For Each element2 In driver.FindElementsByTag("a")
+                     
+                        If InStr(element2.Attribute("href"), "profile") > 0 Then
+                        
+                            Cells(i, 7).Value = element2.Text
+                        
+                        End If
+                     
+                     Next
+                    
+                     Exit For
+                     
+            Else
+            
+                    Cells(i, 6).Value = "×"
+            
+             
+            End If
+             
+         Next
+        
+        End If
+        
+    Next
+   
+    driver.Quit
+    
+    
+End Sub
