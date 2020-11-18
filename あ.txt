@@ -1,0 +1,21 @@
+function myFunction() {
+  
+  var ja= 'lang="ja"';
+  var en="lang=en";
+  
+  var pdf=".pdf";
+  
+  var getUrl = 'https://www.johnnys-net.jp/page?id=artistTop&artist=12';
+
+  var html = UrlFetchApp.fetch(getUrl).getContentText('UTF-8');
+  
+  //データを取得する
+  var data = Parser.data(html).from('<html').to('<head>').build();
+  
+  if(data.indexOf(ja))
+  {
+    console.log("見つけました");
+  }
+  
+  
+}
