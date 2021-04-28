@@ -1,0 +1,80 @@
+from bs4 import BeautifulSoup
+import requests
+from datetime import datetime
+import sys
+import openpyxl as px
+
+def scrape(url,n):
+
+    html = requests.get(url)
+    #取得したHTMLをパース
+    soup = BeautifulSoup(html.content, "html.parser")
+
+    datetimestr = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    
+    #各データを抽出する
+    elems_title = soup.find_all(class_='event-title')
+    elems_day=soup.find_all(class_='date')
+    elems_medium=soup.find_all(class_='event-sponsor')
+
+
+    #データ格納先
+    event_title = []
+    event_day=[]
+    event_medium=[]
+
+    #抽出したデータから必要なものを格納する
+    for elem1 in elems_title:
+        #そのまま抽出
+        event_title.append(elem1.get_text().strip())
+
+    for elem2 in elems_day:
+        #2021/04/30まで抽出する
+        if not elem2.get_text().strip()=="いつでも参加OK":
+            day_ev=elem2.get_text().strip()
+            target1 = '('
+            idx = day_ev.find(target1)
+            r1 = day_ev[:idx]  # スライスで半角空白文字よりも前を抽出
+            event_day.append(r1)
+        else:
+            event_day.append(elem2.get_text().strip())
+
+
+    for elem3 in elems_medium:
+        med_ev=elem3.decode_contents(formatter="html").strip()
+        
+        target2 = 'alt="'
+        idx = med_ev.find(target2)
+        r2 = med_ev[idx+5:] 
+        
+        target3 = '"'
+        idx = r2.find(target3)
+        r3 = r2[:idx]
+
+        event_medium.append(r3)
+        
+    wb = px.load_workbook(filename=r'C:\Users\s20820020\Documents\xest.xlsx')
+
+    sheet=wb.worksheets[n-1]
+
+    for i in range(len(event_title)):
+        #A列にリストを書き込み
+        sheet.cell(row=i+1,column=1).value=event_title[i]
+        #B列にリストを書き込み
+        sheet.cell(row=i+1,column=2).value = event_day[i]
+
+    wb.save(r'C:\Users\s20820020\Documents\xest.xlsx')
+
+
+''' メイン処理 '''
+if __name__ == '__main__':
+    
+    """ for row in ws:
+        for cell in row:
+            cell.value = None """
+
+    #1~6まで
+    for n in range(1,7):
+        url = 'https://www.gosetsu.com/career/briefings/index/'+str(n)
+        scrape(url,n)
+    print('処理が完了しました。')
