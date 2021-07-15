@@ -1,0 +1,99 @@
+Public Sub importfiles()
+
+
+    Application.ScreenUpdating = False
+
+    'マクロ実行用xlsmのパスを利用するためにブックの情報を格納
+    Dim wbPos As Workbook
+    Set wbPos = Application.ActiveWorkbook
+    
+    Dim ws_rakuten, ws_syusei As Worksheet
+
+    
+    
+    'ファイル・フォルダを操作するオブジェクト変数f
+    Dim f As Object
+    
+    Set f = CreateObject("Scripting.FileSystemObject")
+    
+    '対象フォルダ名を格納する変数buf
+    Dim buf As String
+    
+    'bufに開くフォルダを設定する----------------------------------------------------------
+    
+    With wbPos
+        buf = Left(.Path, InStrRev(.Path, "\") - 1)
+    End With
+    
+    buf = buf & "\変換用データ"
+    
+    '-----------------------------------------------------------------------------------------
+    
+    'GetFolderメソッドで情報を取得(fにxlsxを順に入れる)
+    For Each f In f.GetFolder(buf).Files
+        
+        
+        '拡張子によりExcelファイルだけを対象とする
+        If Right(f.Name, 4) = ".csv" Then
+        
+            If InStr(f.Name, rakuten_item - cat) > 0 Then
+            
+                Dim wb_rakuten As Workbook
+                Set wb_rakuten = Workbooks.Open(f.Path, 0)
+                
+            Else
+            
+                Dim wb_syusei As Workbook
+                Set wb_syusei = Workbooks.Open(f.Path, 0)
+            
+            End If
+            
+            
+        End If
+        
+    Next f
+    
+    
+    'ここまでで、csvファイルのオープンの変数の設定が完了した
+    
+    Set ws_rakuten = wb_rakuten.Sheets(1)
+    
+    Set ws_syusei = wb_syusei.Sheets(1)
+    
+    'E列に挿入
+    ws_rakuten.Columns(5).Insert
+    
+    Dim LastRow As Long
+    LastRow = ws_rakuten.Cells(Rows.Count, 4).End(xlUp).Row
+    
+'    Dim i As Long
+    
+    '7/15 D2をiでうまく置き換える予定
+'    For i = 2 To LastRow
+'
+'        If InStr(ws_rakuten.Cells(i, 4).Value, "半") > 0 Then
+'
+'            ws_rakuten.Cells(i, 5).Value = "=MID(D2,4,4)&TEXT(IF(FIND(""月"",D2)-FIND(""年"",D2)=3,MID(D2,10,1),MID(D2,10,2)),""00"")&TEXT(IF(FIND(""日"",D2)-FIND(""月"",D2)=7,MID(D2,FIND(""半"",D2)+2,2),MID(D2,FIND(""半"",D2)+2,1)),""00"")&10"
+'
+'        Else
+'
+'            ws_rakuten.Cells(i, 5).Value = "=MID(D2,4,4)&TEXT(IF(FIND(""月"",D2)-FIND(""年"",D2)=3,MID(D2,10,1),MID(D2,10,2)),""00"")&TEXT(IF(FIND(""日"",D2)-FIND(""月"",D2)=4,MID(D2,FIND(""月"",D2)+2,2),MID(D2,FIND(""月"",D2)+2,1)),""00"")&10"
+'
+'        End If
+'
+'
+'    Next
+    
+    
+
+    
+    Application.ScreenUpdating = True
+    
+End Sub
+
+
+
+
+
+
+
