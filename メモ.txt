@@ -1,0 +1,668 @@
+Option Explicit
+'人員カウント集計作業を自動化したものです。
+'【作業の流れ】
+'①指定リストにあるメンバーを組織図から削除
+'②指定リストにあるメンバーの所属2名称を入力
+'③メンテナンス対象の所属2名称を置換
+'④社員/他従業員の区分け欄を追加し入力
+'⑤ピボットテーブルで集計
+'⑥指定のシートに入力
+
+'**********************************************************************
+'重複チェック処理（誤集計防止）
+'**********************************************************************
+Sub overlapping_check(ByVal wkBook As Workbook, ByVal targetWs As Worksheet)
+    Dim DicUnique As Variant
+    Dim DicOverlapping As Variant
+    Dim overlappingTxtFile As String
+    Dim i As Long
+    Dim getId As String
+    Dim overlappingKey As Variant
+    Dim overlappingItem As Variant
+    Dim overlappingList As String
+    
+    '重複社員番号リストのファイルを変数に代入
+    overlappingTxtFile = ThisWorkbook.Path & "\" & "！重複社員番号リスト.txt"
+
+    '連想配列作成
+    Set DicUnique = CreateObject("Scripting.Dictionary")
+    Set DicOverlapping = CreateObject("Scripting.Dictionary")
+
+    '最終行まで繰り返す
+    For i = 2 To targetWs.Cells(Rows.Count, 1).End(xlUp).Row
+
+        '値を変数へ
+        getId = targetWs.Cells(i, 1)
+
+        '重複しないリストを連想配列へ
+        If Not DicUnique.Exists(getId) Then
+             DicUnique.Add getId, getId
+        Else
+            '重複しているリストを連想配列へ
+            If Not DicOverlapping.Exists(getId) Then
+                 DicOverlapping.Add getId, 2
+             Else
+                 '重複件数を数える
+                  DicUnique(getId) = DicUnique(getId) + 1
+            End If
+        End If
+
+    Next i
+
+    '重複していた場合
+    If DicOverlapping.Count > 0 Then
+        '重複している社員番号（キー）とリストに存在する数（データ）を変数に代入
+        overlappingKey = DicOverlapping.keys
+        overlappingItem = DicOverlapping.items
+        
+        '出力用にテキストを連結
+        For i = 0 To UBound(DicOverlapping.items)
+            overlappingList = overlappingList & overlappingKey(i) & "：" & overlappingItem(i) & "個" & vbCrLf
+        Next i
+        
+        '重複リスト出力用ファイルを開いて書き込む
+        Open overlappingTxtFile For Output As #2
+        Print #2, "【重複している社員番号】"
+        Print #2, overlappingList
+        Close #2
+        
+        'エラーメッセージ表示
+        MsgBox targetWs.Name & "に重複している社員番号があります！" & vbCrLf & "重複社員番号リストを確認してください。"
+        wkBook.Close SaveChanges:=False
+        End
+    Else
+        'やり直したとき等ファイルが残っていると紛らわしいので、重複リストの内容を書き換える
+        Open overlappingTxtFile For Output As #2
+        Print #2, "重複している社員番号はありません"
+        Close #2
+    End If
+
+    Set DicUnique = Nothing
+    Set DicOverlapping = Nothing
+
+End Sub
+
+'**********************************************************************
+'削除処理
+'**********************************************************************
+Sub deleate_data(ByVal wkBook As Workbook, ByVal targetWs As Worksheet)
+    Dim delWs As Worksheet
+    Dim delIds As Variant
+    Dim delId() As Variant
+    Dim i As Long
+    Dim Rng As Range
+    Dim delTxtFile As String
+    Dim delErrorList As String
+    
+    delTxtFile = ThisWorkbook.Path & "\" & "！削除エラー社員番号リスト.txt"
+    
+    '既にオートフィルタがかかっていたら解除する
+    targetWs.AutoFilterMode = False
+    
+    '削除用リストのシートを変数に代入
+    On Error Resume Next 'エラーを無効にする
+    Set delWs = wkBook.Worksheets(ThisWorkbook.Worksheets("ツール設定").Cells(6, 3).Value)
+    On Error GoTo 0 'エラーを有効にする
+    'もしシートが存在しないとき
+    If delWs Is Nothing Then
+        MsgBox "削除用シートが存在しません！" & vbCrLf & "「ツール設定」のシート名を確認してください！"
+        End
+    End If
+    
+    '削除リストを取得
+    delIds = delWs.Range(delWs.Cells(2, 1), delWs.Cells(Rows.Count, 1).End(xlUp)).Value 'A2から最終行まで取得
+    
+    '万が一削除リストがない場合確認する
+    If delIds(1, 1) = delWs.Cells(1, 1).Value Then
+      If MsgBox(delWs.Name & "に番号が存在しませんが、続行しますか？", vbYesNo + vbQuestion) = vbNo Then
+      wkBook.Close SaveChanges:=False
+        End
+      End If
+        Exit Sub '続行する場合削除処理を抜けて次に行く
+    End If
+    
+    ReDim delId(delWs.Cells(Rows.Count, 1).End(xlUp).Row - 2) '配列用意
+    For i = 1 To delWs.Cells(Rows.Count, 1).End(xlUp).Row - 1 '取得した削除リストを一次元配列にする
+        delId(i - 1) = delIds(i, 1)
+        
+        '社員番号に空欄がある場合
+        If IsEmpty(delId(i - 1)) Then
+            MsgBox delWs.Name & "の社員番号に空欄が存在します｡処理を中断します"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+    Next i
+    
+    '削除リストの社員番号が組織図にあるか確認
+    For i = 0 To delWs.Cells(Rows.Count, 1).End(xlUp).Row - 2
+        Set Rng = targetWs.Range(targetWs.Cells(2, 1), targetWs.Cells(Rows.Count, 1).End(xlUp)).Find(what:=delId(i), _
+                      LookIn:=xlValues, _
+                      Lookat:=xlWhole, _
+                      Searchorder:=xlByRows, _
+                      SearchDirection:=xlNext)
+        '万が一リストにある社員番号がなかった場合
+        If Rng Is Nothing Then
+            delErrorList = delErrorList & delId(i) & vbCrLf
+        End If
+    Next i
+    
+    If delErrorList <> "" Then
+    '削除エラーリスト出力用ファイルを開いて書き込む
+        Open delTxtFile For Output As #3
+        Print #3, "【見つからなかった削除リストの社員番号】"
+        Print #3, delErrorList
+        Close #3
+        
+        'エラーメッセージ表示
+        MsgBox targetWs.Name & "で削除対象の社員番号が見つかりません！" & vbCrLf & "削除エラー社員番号リストを確認してください。"
+        wkBook.Close SaveChanges:=False
+        End
+    Else
+        'やり直したとき等ファイルが残っていると紛らわしいので、エラーリストの内容を書き換える
+        Open delTxtFile For Output As #3
+        Print #3, "削除リストの社員番号エラーはありません"
+        Close #3
+    End If
+    
+    '削除リストの配列でフィルタをかけて削除
+    targetWs.Range(targetWs.Cells(1, 1), targetWs.Cells(Rows.Count, 10).End(xlUp)).AutoFilter Field:=1, Criteria1:=delId, Operator:=xlFilterValues 'フィルターをかける
+    With targetWs.Cells(1, 1).CurrentRegion.Offset(1, 0) '見出しより一行下からの範囲を対象にする
+        .EntireRow.Delete '対象範囲の行を全て削除
+    End With
+    
+    targetWs.AutoFilterMode = False 'フィルター解除
+    
+End Sub
+'**********************************************************************
+'所属予備２名称入力処理
+'**********************************************************************
+Sub paste_data(ByVal wkBook As Workbook, ByVal targetWs As Worksheet)
+    Dim pasteWs As Worksheet
+    Dim pasteIds As Variant
+    Dim pasteNames As Variant
+    Dim pasteId() As Variant
+    Dim Rng As Range
+    Dim i As Long
+    Dim pasteTxtFile As String
+    Dim pasteErrorList As String
+    Dim lastRow As Long
+    
+    pasteTxtFile = ThisWorkbook.Path & "\" & "！所属2名称エラー社員番号リスト.txt"
+
+    '所属名称リストのシートを変数に代入
+    On Error Resume Next 'エラーを無効にする
+    Set pasteWs = wkBook.Worksheets(ThisWorkbook.Worksheets("ツール設定").Cells(7, 3).Value)
+    On Error GoTo 0 'エラーを有効にする
+    'もしシートが存在しないとき
+    If pasteWs Is Nothing Then
+        MsgBox "所属予備2名称変更用シートが存在しません！" & vbCrLf & "「ツール設定」のシート名を確認してください！"
+        wkBook.Close SaveChanges:=False
+        End
+    End If
+    
+    '最終行を変数に代入
+    lastRow = pasteWs.Cells(Rows.Count, 1).End(xlUp).Row
+
+    '所属2名称リストの社員番号を取得
+    pasteIds = pasteWs.Range(pasteWs.Cells(2, 1), pasteWs.Cells(Rows.Count, 1).End(xlUp)).Value 'A2から最終行まで取得
+    pasteNames = pasteWs.Range(pasteWs.Cells(2, 8), pasteWs.Cells(Rows.Count, 8).End(xlUp)).Value 'H2から最終行まで取得
+    
+    '万が一所属2名称リストがない場合確認する
+    If pasteIds(1, 1) = pasteWs.Cells(1, 1).Value Then
+      If MsgBox(pasteWs.Name & "に番号が存在しませんが、続行しますか？", vbYesNo + vbQuestion) = vbNo Then
+      wkBook.Close SaveChanges:=False
+        End
+      End If
+        Exit Sub '続行する場合所属2名称入力処理を抜けて次に行く
+    End If
+             
+    ReDim pasteId(lastRow - 2) '配列用意
+    For i = 1 To lastRow - 1 '取得した社員番号を一次元配列にする
+        pasteId(i - 1) = pasteIds(i, 1)
+        
+        '社員番号に空欄がある場合
+        If IsEmpty(pasteId(i - 1)) Then
+            MsgBox pasteWs.Name & "の社員番号に空欄が存在します｡処理を中断します"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+        
+        '所属2名称欄に空欄がある場合
+        If IsEmpty(pasteNames(i, 1)) Then
+            MsgBox pasteWs.Name & "の所属2名称欄に空欄が存在します｡処理を中断します"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+    Next i
+    
+        '所属2名称リストの社員番号が組織図にあるか確認
+    For i = 0 To lastRow - 2
+        Set Rng = targetWs.Range(targetWs.Cells(2, 1), targetWs.Cells(Rows.Count, 1).End(xlUp)).Find(what:=pasteId(i), _
+                      LookIn:=xlValues, _
+                      Lookat:=xlWhole, _
+                      Searchorder:=xlByRows, _
+                      SearchDirection:=xlNext)
+        '万が一リストにある社員番号がなかった場合
+        If Rng Is Nothing Then
+            pasteErrorList = pasteErrorList & pasteId(i) & vbCrLf 'エラーリストの内容を連結
+        Else
+            Rng.Offset(0, 7) = pasteNames(i + 1, 1) '社員番号を入力
+        End If
+    Next i
+    
+    If pasteErrorList <> "" Then
+    'エラーリスト出力用ファイルを開いて書き込む
+        Open pasteTxtFile For Output As #4
+        Print #4, "【見つからなかった削除リストの社員番号】"
+        Print #4, pasteErrorList
+        Close #4
+        
+        'エラーメッセージ表示
+        MsgBox targetWs.Name & "で所属2名称入力対象の社員番号が見つかりません！" & vbCrLf & "所属2名称エラー社員番号リストを確認してください。"
+        wkBook.Close SaveChanges:=False
+        End
+    Else
+        'やり直したとき等ファイルが残っていると紛らわしいので、エラーリストの内容を書き換える
+        Open pasteTxtFile For Output As #4
+        Print #4, "所属2名称リストの社員番号エラーはありません"
+        Close #4
+    End If
+
+End Sub
+'**********************************************************************
+'所属予備２名称のメンテナンス処理
+'**********************************************************************
+Sub maintenance_data(ByVal wkBook As Workbook, ByVal targetWs As Worksheet, ByVal thisWs As Worksheet)
+    Dim keyName As String
+    Dim Rng As Range
+    Dim changeName As Variant
+    Dim chgNamesBefore As Variant
+    Dim chgNamesAfter As Variant
+    Dim bool As Boolean
+    Dim i As Long
+
+    chgNamesBefore = thisWs.Range(thisWs.Cells(11, 2), thisWs.Cells(Rows.Count, 2).End(xlUp)).Value '置換対象の文字列リストを設定
+    chgNamesAfter = thisWs.Range(thisWs.Cells(11, 3), thisWs.Cells(Rows.Count, 3).End(xlUp)).Value '置換後の文字列リストを設定
+    Set Rng = targetWs.Range(targetWs.Cells(2, 8), targetWs.Cells(Rows.Count, 8).End(xlUp)) 'メンテナンス範囲指定
+    
+    '置換（メンテナンスのルール要確認。前方一致で良い可能性あり。）
+    i = 1
+    For Each changeName In chgNamesBefore
+        If IsEmpty(chgNamesAfter(i, 1)) Then
+            MsgBox "メンテナンスエラー。変更後の名称が入力されていません。"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+        keyName = Trim(chgNamesBefore(i, 1))
+        bool = Rng.Replace( _
+                what:=keyName, _
+                Replacement:=chgNamesAfter(i, 1), _
+                Lookat:=xlWhole _
+                )
+        i = i + 1
+    Next
+
+End Sub
+'**********************************************************************
+'社員／他従業員区分分け処理
+'**********************************************************************
+Sub sort_data(ByVal wkBook As Workbook, ByVal targetWs As Worksheet, ByVal thisWs As Worksheet)
+    Dim hakenWs As Worksheet
+    Dim i As Long
+    Const countingShainSheetName As String = "社員" 'ピボットテーブル作成シートの名称（社員）
+    Const countingHakenSheetName As String = "派遣" 'ピボットテーブル作成シートの名称（派遣）
+    Const headingSort As String = "社員／他従業員"
+    Const headingId As String = "社員番号"
+    Const headingCode As String = "従業員ｺｰﾄﾞ"
+    Const headingHakenBelong As String = "所属(会計組織図ﾚﾍﾞﾙ2)(関係会社はﾚﾍﾞﾙ0)"
+    Const shainTableName As String = "社員テーブル"
+    Const hakenTableName As String = "派遣テーブル"
+    Const headingShainBelong As String = "所属予備２名称"
+    
+    Set hakenWs = wkBook.Worksheets(ThisWorkbook.Worksheets("ツール設定").Cells(8, 3).Value)
+
+    '区分準備（G列に区分を挿入）
+    targetWs.Columns(7).Insert
+    targetWs.Cells(1, 7) = headingSort
+    
+    For i = 2 To targetWs.Cells(Rows.Count, 1).End(xlUp).Row
+    
+   ' On Error Resume Next
+    targetWs.Cells(i, 7) = WorksheetFunction.VLookup(targetWs.Cells(i, 6), thisWs.Range(thisWs.Cells(10, 5), thisWs.Cells(Rows.Count, 6).End(xlUp)), 2, 0)
+    'エラーが発生した場合
+    If Err.Number <> 0 Then
+        If Err.Number = 1004 Then
+         MsgBox "区分分けエラー。" & vbCrLf & "区分分けリストが間違っているか、またはリストに入力されていない区分が組織図に存在します。"
+        Else
+         MsgBox "区分分けエラー。想定外のエラーです。"
+        End If
+       ' wkBook.Close SaveChanges:=False
+        End
+    End If
+    Next
+    
+    '社員のピボットテーブル作成
+    Worksheets.Add(before:=targetWs).Name = countingShainSheetName 'シートを追加
+    wkBook.PivotCaches.Create(SourceType:=xlDatabase, _
+        SourceData:=targetWs.Range(targetWs.Cells(1, 1), targetWs.Cells(Rows.Count, 10).End(xlUp))) _
+        .CreatePivotTable TableDestination:=wkBook.Worksheets(countingShainSheetName).Cells(3, 1), TableName:=shainTableName  '集計元：組織図のA1から最終行、作成先：追加したシートのA3、テーブル名：設定した名前　でピボットテーブル作成
+    
+    'ピボットテーブルの集計設定
+    With wkBook.Worksheets(countingShainSheetName).PivotTables(shainTableName)
+     .PivotFields(headingShainBelong).Orientation = xlRowField '行ラベルに設定
+     .PivotFields(headingSort).Orientation = xlColumnField '列ラベルに設定
+        With .PivotFields(headingId)
+         .Orientation = xlDataField '値に設定
+         .Function = xlCount '集計方法を個数に設定
+        End With
+    End With
+    
+    '他従業員のピボットテーブル作成
+    Worksheets.Add(before:=hakenWs).Name = countingHakenSheetName 'シートを追加
+    wkBook.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=hakenWs.Range(hakenWs.Cells(1, 1), hakenWs.Cells(Rows.Count, 16).End(xlUp))) _
+    .CreatePivotTable TableDestination:=wkBook.Worksheets(countingHakenSheetName).Cells(3, 1), TableName:=hakenTableName '集計元：組織図のA1から最終行、作成先：追加したシートのA3、テーブル名：設定した名前　でピボットテーブル作成
+    
+    With wkBook.Worksheets(countingHakenSheetName).PivotTables(hakenTableName)
+     .PivotFields(headingHakenBelong).Orientation = xlRowField
+        With .PivotFields(headingCode)
+         .Orientation = xlDataField '値に設定
+         .Function = xlCount '集計方法を個数に設定
+        End With
+    End With
+
+End Sub
+'**********************************************************************
+'入力シートへの反映処理
+'**********************************************************************
+Sub input_data(ByVal wkBook As Workbook, ByVal targetWs As Worksheet)
+    Dim inputWs As Worksheet
+    Dim foundCell As Range
+    Dim extractedBelong As Variant
+    Dim replacedBelong As Variant
+    Dim extractedBelongs As Variant
+    Dim replacedBelongs() As Variant
+    Dim errorTxtFile As String
+    Dim errorShainList As String
+    Dim errorHakenList As String
+    Dim i As Long
+    Dim firstCell As Range
+    Dim totalCell As Range
+    Dim blankCells As Range
+    Const countingShainSheetName As String = "社員" 'ピボットテーブル作成シートの名称（社員）
+    Const countingHakenSheetName As String = "派遣" 'ピボットテーブル作成シートの名称（派遣）
+
+    '入力シートを変数に代入
+    On Error Resume Next 'エラーを無効にする
+    Set inputWs = wkBook.Worksheets(ThisWorkbook.Worksheets("ツール設定").Cells(9, 3).Value)
+    On Error GoTo 0 'エラーを有効にする
+    'もしシートが存在しないとき
+    If inputWs Is Nothing Then
+        MsgBox "入力シートが存在しません！" & vbCrLf & "「ツール設定」のシート名を確認してください！"
+        End
+    End If
+    
+    errorTxtFile = ThisWorkbook.Path & "\" & "！入力エラーリスト.txt"
+    
+    '社員編
+    '所属予備2名称を取得
+    With wkBook.Worksheets(countingShainSheetName)
+        extractedBelongs = .Range(.Cells(5, 1), .Cells(.Cells(Rows.Count, 1).End(xlUp).Row - 1, 1))
+        
+        '半角カナを全角へ変換
+        i = 1
+        ReDim replacedBelongs(.Cells(Rows.Count, 1).End(xlUp).Row - 6)
+        For Each extractedBelong In extractedBelongs
+             replacedBelongs(i - 1) = han2zen(extractedBelong)
+             i = i + 1
+        Next
+    End With
+    
+    'リストの社名表記に変換
+    i = 0
+        For Each replacedBelong In replacedBelongs
+        Set foundCell = ThisWorkbook.Worksheets("社名表記").Range(ThisWorkbook.Worksheets("社名表記").Cells(2, 1), ThisWorkbook.Worksheets("社名表記").Cells(Rows.Count, 1).End(xlUp)).Find( _
+                    what:=replacedBelong, _
+                    Lookat:=xlWhole)
+
+        If Not foundCell Is Nothing Then
+             replacedBelongs(i) = foundCell.Offset(0, 2).Value
+        End If
+        i = i + 1
+    Next
+    Set foundCell = Nothing
+    Set extractedBelong = Nothing
+    Set replacedBelong = Nothing
+    
+    '所定の場所に入力
+    
+    i = 5
+    'リストと完全一致するセルを探す
+    For Each replacedBelong In replacedBelongs
+        If replacedBelong = "(空白)" Then
+            MsgBox "組織図の所属2名称に空欄があります｡組織図の形式が正しいか確認してください。" & vbCrLf & "処理を中断します｡"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+        Set foundCell = inputWs.Range(inputWs.Cells(1, 1), inputWs.Cells(Rows.Count, 1).End(xlUp)).Find( _
+                    what:=replacedBelong, _
+                    Lookat:=xlWhole)
+
+        If foundCell Is Nothing Then
+            errorShainList = errorShainList & replacedBelong & vbCrLf
+        Else
+        '社員シートの該当箇所が未入力でなければ入力
+            If wkBook.Worksheets("社員").Cells(i, 2).Value <> "" Then
+                 foundCell.Offset(1, 2) = wkBook.Worksheets("社員").Cells(i, 2)
+            End If
+            If wkBook.Worksheets("社員").Cells(i, 3).Value <> "" Then
+                 foundCell.Offset(2, 2) = wkBook.Worksheets("社員").Cells(i, 3)
+            End If
+        End If
+        i = i + 1
+    Next
+    
+    Open errorTxtFile For Output As #1
+    Print #1, "【社員】"
+    Print #1, "入力失敗した名称は以下の通りです"
+    Print #1, "＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿"
+    Print #1, errorShainList
+    Close #1
+    
+    '派遣編
+    '所属予備2名称を取得
+    extractedBelongs = wkBook.Worksheets("派遣").Range(wkBook.Worksheets("派遣").Cells(4, 1), wkBook.Worksheets("派遣").Cells(wkBook.Worksheets("派遣").Cells(Rows.Count, 1).End(xlUp).Row - 1, 1))
+    
+    '半角カナを全角へ変換
+    i = 1
+    ReDim replacedBelongs(wkBook.Worksheets("派遣").Cells(Rows.Count, 1).End(xlUp).Row - 5)
+    For Each extractedBelong In extractedBelongs
+         replacedBelongs(i - 1) = han2zen(extractedBelong)
+         i = i + 1
+    Next
+    
+    'リストの社名表記に変換
+    i = 0
+        For Each replacedBelong In replacedBelongs
+        Set foundCell = ThisWorkbook.Worksheets("社名表記").Range(ThisWorkbook.Worksheets("社名表記").Cells(2, 5), ThisWorkbook.Worksheets("社名表記").Cells(Rows.Count, 5).End(xlUp)).Find( _
+                    what:=replacedBelong, _
+                    Lookat:=xlWhole)
+
+        If Not foundCell Is Nothing Then
+             replacedBelongs(i) = foundCell.Offset(0, 2).Value
+        End If
+        i = i + 1
+    Next
+    Set extractedBelong = Nothing
+    Set replacedBelong = Nothing
+    
+    '所定の場所に入力
+    
+    i = 4
+    For Each replacedBelong In replacedBelongs
+        If replacedBelong = "(空白)" Then
+            MsgBox "所属2名称に空欄があります｡表の形式に不正がないか確認してください。" & vbCrLf & "処理を中断します｡"
+            wkBook.Close SaveChanges:=False
+            End
+        End If
+        Set foundCell = inputWs.Range(inputWs.Cells(1, 1), inputWs.Cells(Rows.Count, 1).End(xlUp)).Find( _
+                    what:=replacedBelong, _
+                    Lookat:=xlWhole)
+
+        If foundCell Is Nothing Then
+            errorHakenList = errorHakenList & replacedBelong & vbCrLf
+        Else
+            If wkBook.Worksheets("派遣").Cells(i, 2).Value <> "" Then
+                 foundCell.Offset(2, 3) = wkBook.Worksheets("派遣").Cells(i, 2)
+            End If
+        End If
+        i = i + 1
+    Next
+    
+    Open errorTxtFile For Append As #1
+    Print #1, vbCrLf
+    Print #1, "【派遣】"
+    Print #1, "入力失敗した名称は以下の通りです"
+    Print #1, "＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿"
+    Print #1, errorHakenList
+    Close #1
+    
+    '混乱させないために検索条件をデフォルトに戻す
+    Application.FindFormat.Clear
+    Cells(1, 1).Find what:="", Lookat:=xlPart, _
+    Searchorder:=xlByRows, MatchCase:=False, MatchByte:=False
+    
+    
+    '合計が0の箇所を赤く塗る
+    
+    For Each totalCell In Range(inputWs.Cells(1, 5), inputWs.Cells(Rows.Count, 5).End(xlUp)) 'E1から最終列まで一つずつ
+        If totalCell.Interior.Color = RGB(255, 255, 153) And _
+        totalCell.Offset(0, -3).Value = "合計" And _
+        (totalCell = 0 Or totalCell = "") Then '2つ左（部署名）の背景色が白か透明で、かつ1つ左が「合計」で、値が0か空白の場合
+
+            If blankCells Is Nothing Then '最初にヒットした場合
+                Set blankCells = totalCell.Offset(0, -4)  '空白セル範囲に追加する
+            Else
+                Set blankCells = Union(blankCells, totalCell.Offset(0, -4))  '空白セル範囲に追加する
+            End If
+        
+        End If
+    Next totalCell
+            
+    If blankCells Is Nothing Then
+        Exit Sub
+    End If
+    
+    blankCells.Interior.Color = vbRed
+
+End Sub
+'**********************************************************************
+'全角に直して返す
+'**********************************************************************
+Function han2zen(src)
+    Dim l As Long
+    Dim s As String
+    Dim code As String
+    Dim dtc As String
+    Dim c As String
+    Dim n As Long
+    
+    ' すべて全角に変換する
+    s = StrConv(src, vbWide)
+    l = Len(s)
+    For n = 1 To l '一文字ずつ検証
+        c = Mid(s, n, 1)
+        code = Asc(c)
+        ' ぁの文字コード以下ーの文字コード以上の文字は半角に変換
+        If code < Asc("ぁ") And code > Asc("ー") Then
+            c = StrConv(c, vbNarrow)
+        ElseIf code = Asc("　") Then
+            c = StrConv(c, vbNarrow)
+        ElseIf code = Asc("＿") Then
+            c = StrConv(c, vbNarrow)
+        End If
+        dtc = dtc & c
+    Next n
+    han2zen = dtc
+End Function
+'**********************************************************************
+'本処理
+'**********************************************************************
+Sub jinin_count()
+    
+    Dim readFile As String
+    Dim saveFile As String
+    Dim errorTxtFile As String
+    Dim wkBook As Workbook
+    Dim thisWs As Worksheet
+    Dim targetWs As Worksheet
+    
+    '画面の更新をオフ
+    Application.ScreenUpdating = False
+    
+    '確認メッセージ
+    If ThisWorkbook.Worksheets("実行用").FileNameBox.Text = "" Then
+        MsgBox ("ファイルを選択してください。")
+        Exit Sub
+    End If
+    
+    If MsgBox("人員カウント作業を行います。", vbYesNo + vbQuestion) = vbNo Then
+        Exit Sub
+    End If
+    
+    If ThisWorkbook.Worksheets("実行用").Cells(11, 2).Value = "" Then
+        If MsgBox("所属2名称メンテナンス用リストが入力されていない可能性がありますが、よろしいですか？", vbYesNo + vbQuestion) = vbNo Then
+            Exit Sub
+        End If
+    End If
+    
+    If ThisWorkbook.Worksheets("実行用").Cells(10, 5).Value = "" Then
+        MsgBox ("区分けリストが正しく入力されていません。処理を中断します")
+        Exit Sub
+    End If
+    
+    '確認ダイアログをオフ
+    Application.DisplayAlerts = False
+    
+    
+    'ファイルが見つからないとき（不正な入力がされたとき）
+    If Dir(ThisWorkbook.Worksheets("実行用").FileNameBox.Text) = "" Then
+        MsgBox "ファイルが見つかりません。ファイル名を確認してください"
+        Exit Sub
+    End If
+    
+    '保存ファイル名の設定
+    readFile = Dir(ThisWorkbook.Worksheets("実行用").FileNameBox.Text)
+    saveFile = ThisWorkbook.Path & "\" & Format(Date, "mmdd") & "集計中" & readFile '一応上書きしないでおきます
+    
+    'ブック名とシート名を取得して変数に代入
+    Set wkBook = Workbooks.Open(ThisWorkbook.Worksheets("実行用").FileNameBox.Text) 'テキストボックスから取得（ファイルの命名規則が変化する可能性があるので）
+    Set thisWs = ThisWorkbook.Worksheets("実行用")
+    On Error Resume Next 'エラーを無効にする
+    Set targetWs = wkBook.Worksheets(ThisWorkbook.Worksheets("ツール設定").Cells(5, 3).Value)
+    On Error GoTo 0 'エラーを有効にする
+    'もしシートが存在しないとき
+    If targetWs Is Nothing Then
+        MsgBox "組織図シートが存在しません！「ツール設定」のシート名を確認してください！"
+        wkBook.Close SaveChanges:=False
+        End
+    End If
+    
+    '処理
+    Call overlapping_check(wkBook, targetWs)
+    Call deleate_data(wkBook, targetWs)
+    Call paste_data(wkBook, targetWs)
+    Call maintenance_data(wkBook, targetWs, thisWs)
+    Call sort_data(wkBook, targetWs, thisWs)
+    Call input_data(wkBook, targetWs)
+
+    'フィルタを設定した状態に戻す（一応…）
+    targetWs.Range("A1").AutoFilter
+    
+    '保存
+    wkBook.SaveAs saveFile
+    
+    Application.DisplayAlerts = True
+    MsgBox "完了しました。"
+    Application.ScreenUpdating = True
+
+End Sub
